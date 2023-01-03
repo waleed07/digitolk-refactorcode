@@ -6,8 +6,9 @@ use Validator;
 use Illuminate\Database\Eloquent\Model;
 use DTApi\Exceptions\ValidationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use App\Repository\Interfaces\EloquentRepositoryInterface;
 
-class BaseRepository
+class BaseRepository implements EloquentRepositoryInterface
 {
 
     /**
@@ -47,21 +48,24 @@ class BaseRepository
     /**
      * @return \Illuminate\Database\Eloquent\Collection|Model[]
      */
-    public function all()
+    public function all(array $conditons = [],array $columns = ['*'], array $relations = []): Collection
     {
-        return $this->model->all();
+        // TODO: Implement all() method.
+        return $this->model->with($relations)->where($conditons)->get($columns);
     }
+
 
     /**
      * @param integer $id
      * @return Model|null
      */
-    public function find($id)
+    public function find(int $modelId, array $columns = ['*'], array $relations = [], array $appends = []): ?Model
     {
-        return $this->model->find($id);
+        // TODO: Implement findById() method.
+        return $this->model->select($columns)->with($relations)->findorFail($modelId)->append($appends);
     }
 
-    public function with($array)
+    public function with(array $array): ?Model
     {
         return $this->model->with($array);
     }
@@ -71,7 +75,7 @@ class BaseRepository
      * @return Model
      * @throws ModelNotFoundException
      */
-    public function findOrFail($id)
+    public function findOrFail(int $id): ?Model
     {
         return $this->model->findOrFail($id);
     }
@@ -81,7 +85,7 @@ class BaseRepository
      * @return Model
      * @throws ModelNotFoundException
      */
-    public function findBySlug($slug)
+    public function findBySlug(string $slug): ?Model
     {
 
         return $this->model->where('slug', $slug)->first();
@@ -154,29 +158,29 @@ class BaseRepository
      * @param array $data
      * @return Model
      */
-    public function create(array $data = [])
+    public function create(array $data = []) :?Model
     {
         return $this->model->create($data);
     }
 
-    /**
-     * @param integer $id
-     * @param array $data
-     * @return Model
+    /** UPDATE MODEL
+     * @param int $modelId
+     * @param array $attributes
+     * @return bool
      */
-    public function update($id, array $data = [])
+    public function update(int $modelId, array $attributes, array $conditions = []): bool
     {
-        $instance = $this->findOrFail($id);
-        $instance->update($data);
-        return $instance;
+        // TODO: Implement update() method.
+        $model = $this->findById($modelId);
+        return $model->where($conditions)->update($attributes);
     }
 
     /**
      * @param integer $id
-     * @return Model
+     * @return bool
      * @throws \Exception
      */
-    public function delete($id)
+    public function delete(int $id) : bool
     {
         $model = $this->findOrFail($id);
         $model->delete();
@@ -200,6 +204,32 @@ class BaseRepository
         }
 
         return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function show(int $modelId): ?Model
+    {
+        // TODO: Implement show() method.
+        $model = $this->findById($modelId);
+        return $model;
+    }
+
+    public function findByKey(array $conditons = [], array $columns = ['*'], array $relations = []): ?Model
+    {
+        // TODO: Implement findByKey() method.
+        $model = $this->model->select($columns)->with($relations)->where($conditons)->first();
+        return $model;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function findById(int $modelId, array $columns = ['*'], array $relations = [], array $appends = []): ?Model
+    {
+        // TODO: Implement findById() method.
+        return $this->model->select($columns)->with($relations)->findorFail($modelId)->append($appends);
     }
 
 }

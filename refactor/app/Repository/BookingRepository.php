@@ -26,14 +26,16 @@ use Monolog\Handler\StreamHandler;
 use Illuminate\Support\Facades\Log;
 use Monolog\Handler\FirePHPHandler;
 use Illuminate\Support\Facades\Auth;
-
+use App\Traits\ResponseAPI;
+use App\Repositories\Interfaces\BookingRepositoryInterface;
+use Symfony\Component\HttpFoundation\JsonResponse;
 /**
  * Class BookingRepository
  * @package DTApi\Repository
  */
-class BookingRepository extends BaseRepository
+class BookingRepository extends BaseRepository implements BookingRepositoryInterface
 {
-
+    use ResponseAPI;
     protected $model;
     protected $mailer;
     protected $logger;
@@ -55,68 +57,80 @@ class BookingRepository extends BaseRepository
      * @param $user_id
      * @return array
      */
-    public function getUsersJobs($user_id)
+    public function getUsersJobs(int $user_id) : JsonResponse
     {
-        $cuser = User::find($user_id);
-        $usertype = '';
-        $emergencyJobs = array();
-        $noramlJobs = array();
-        if ($cuser && $cuser->is('customer')) {
-            $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback')->whereIn('status', ['pending', 'assigned', 'started'])->orderBy('due', 'asc')->get();
-            $usertype = 'customer';
-        } elseif ($cuser && $cuser->is('translator')) {
-            $jobs = Job::getTranslatorJobs($cuser->id, 'new');
-            $jobs = $jobs->pluck('jobs')->all();
-            $usertype = 'translator';
-        }
-        if ($jobs) {
-            foreach ($jobs as $jobitem) {
-                if ($jobitem->immediate == 'yes') {
-                    $emergencyJobs[] = $jobitem;
-                } else {
-                    $noramlJobs[] = $jobitem;
-                }
+        try{
+            $cuser = User::find($user_id);
+            $usertype = '';
+            $emergencyJobs = array();
+            $noramlJobs = array();
+            if ($cuser && $cuser->is('customer')) {
+                $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback')->whereIn('status', ['pending', 'assigned', 'started'])->orderBy('due', 'asc')->get();
+                $usertype = 'customer';
+            } elseif ($cuser && $cuser->is('translator')) {
+                $jobs = Job::getTranslatorJobs($cuser->id, 'new');
+                $jobs = $jobs->pluck('jobs')->all();
+                $usertype = 'translator';
             }
-            $noramlJobs = collect($noramlJobs)->each(function ($item, $key) use ($user_id) {
-                $item['usercheck'] = Job::checkParticularJob($user_id, $item);
-            })->sortBy('due')->all();
+            if ($jobs) {
+                foreach ($jobs as $jobitem) {
+                    if ($jobitem->immediate == 'yes') {
+                        $emergencyJobs[] = $jobitem;
+                    } else {
+                        $noramlJobs[] = $jobitem;
+                    }
+                }
+                $noramlJobs = collect($noramlJobs)->each(function ($item, $key) use ($user_id) {
+                    $item['usercheck'] = Job::checkParticularJob($user_id, $item);
+                })->sortBy('due')->all();
+            }
+            $data =  ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'cuser' => $cuser, 'usertype' => $usertype];
+            return $this->success("User jobs fetch successfully", $data,'data');
+        }catch(\Exception $e)
+        {
+            return $this->error($e->getMessage(), $e->getCode());
         }
-
-        return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'cuser' => $cuser, 'usertype' => $usertype];
     }
 
     /**
      * @param $user_id
      * @return array
      */
-    public function getUsersJobsHistory($user_id, Request $request)
+    public function getUsersJobsHistory(int $user_id, Request $request) : JsonResponse
     {
-        $page = $request->get('page');
-        if (isset($page)) {
-            $pagenum = $page;
-        } else {
-            $pagenum = "1";
-        }
-        $cuser = User::find($user_id);
-        $usertype = '';
-        $emergencyJobs = array();
-        $noramlJobs = array();
-        if ($cuser && $cuser->is('customer')) {
-            $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback', 'distance')->whereIn('status', ['completed', 'withdrawbefore24', 'withdrawafter24', 'timedout'])->orderBy('due', 'desc')->paginate(15);
-            $usertype = 'customer';
-            return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => [], 'jobs' => $jobs, 'cuser' => $cuser, 'usertype' => $usertype, 'numpages' => 0, 'pagenum' => 0];
-        } elseif ($cuser && $cuser->is('translator')) {
-            $jobs_ids = Job::getTranslatorJobsHistoric($cuser->id, 'historic', $pagenum);
-            $totaljobs = $jobs_ids->total();
-            $numpages = ceil($totaljobs / 15);
+        try{
+            $page = $request->get('page');
+            if (isset($page)) {
+                $pagenum = $page;
+            } else {
+                $pagenum = "1";
+            }
+            $cuser = User::find($user_id);
+            $usertype = '';
+            $emergencyJobs = array();
+            $noramlJobs = array();
+            if ($cuser && $cuser->is('customer')) {
+                $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback', 'distance')->whereIn('status', ['completed', 'withdrawbefore24', 'withdrawafter24', 'timedout'])->orderBy('due', 'desc')->paginate(15);
+                $usertype = 'customer';
+                $data =  ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => [], 'jobs' => $jobs, 'cuser' => $cuser, 'usertype' => $usertype, 'numpages' => 0, 'pagenum' => 0];
+                return $this->success("User jobs history fetch successfully", $data,'data');
+            } elseif ($cuser && $cuser->is('translator')) {
+                $jobs_ids = Job::getTranslatorJobsHistoric($cuser->id, 'historic', $pagenum);
+                $totaljobs = $jobs_ids->total();
+                $numpages = ceil($totaljobs / 15);
 
-            $usertype = 'translator';
+                $usertype = 'translator';
 
-            $jobs = $jobs_ids;
-            $noramlJobs = $jobs_ids;
-//            $jobs['data'] = $noramlJobs;
-//            $jobs['total'] = $totaljobs;
-            return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'jobs' => $jobs, 'cuser' => $cuser, 'usertype' => $usertype, 'numpages' => $numpages, 'pagenum' => $pagenum];
+                $jobs = $jobs_ids;
+                $noramlJobs = $jobs_ids;
+    //            $jobs['data'] = $noramlJobs;
+    //            $jobs['total'] = $totaljobs;
+                $data =  ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'jobs' => $jobs, 'cuser' => $cuser, 'usertype' => $usertype, 'numpages' => $numpages, 'pagenum' => $pagenum];
+                return $this->success("User jobs history fetch successfully", $data,'data');
+            }
+        }catch(\Exception $e)
+        {
+            return $this->error($e->getMessage(), $e->getCode());
         }
     }
 
@@ -130,6 +144,7 @@ class BookingRepository extends BaseRepository
 
         $immediatetime = 5;
         $consumer_type = $user->userMeta->consumer_type;
+        // env('CUSTOMER_ROLE_ID') instead fetching static ids from env or anywhere else we can create Access control system using Spatie package which is really good in role management.
         if ($user->user_type == env('CUSTOMER_ROLE_ID')) {
             $cuser = $user;
 
@@ -283,40 +298,49 @@ class BookingRepository extends BaseRepository
      * @param $data
      * @return mixed
      */
-    public function storeJobEmail($data)
+    public function storeJobEmail(array $data) : JsonResponse
     {
-        $user_type = $data['user_type'];
-        $job = Job::findOrFail(@$data['user_email_job_id']);
-        $job->user_email = @$data['user_email'];
-        $job->reference = isset($data['reference']) ? $data['reference'] : '';
-        $user = $job->user()->get()->first();
-        if (isset($data['address'])) {
-            $job->address = ($data['address'] != '') ? $data['address'] : $user->userMeta->address;
-            $job->instructions = ($data['instructions'] != '') ? $data['instructions'] : $user->userMeta->instructions;
-            $job->town = ($data['town'] != '') ? $data['town'] : $user->userMeta->city;
-        }
-        $job->save();
+        DB::beginTransaction();
+        try{
+            $user_type = $data['user_type'];
+            $job = Job::findOrFail(@$data['user_email_job_id']);
+            $job->user_email = @$data['user_email'];
+            $job->reference = isset($data['reference']) ? $data['reference'] : '';
+            $user = $job->user()->get()->first();
+            if (isset($data['address'])) {
+                $job->address = ($data['address'] != '') ? $data['address'] : $user->userMeta->address;
+                $job->instructions = ($data['instructions'] != '') ? $data['instructions'] : $user->userMeta->instructions;
+                $job->town = ($data['town'] != '') ? $data['town'] : $user->userMeta->city;
+            }
+            $job->save();
+            DB::commit();
 
-        if (!empty($job->user_email)) {
-            $email = $job->user_email;
-            $name = $user->name;
-        } else {
-            $email = $user->email;
-            $name = $user->name;
-        }
-        $subject = 'Vi har mottagit er tolkbokning. Bokningsnr: #' . $job->id;
-        $send_data = [
-            'user' => $user,
-            'job'  => $job
-        ];
-        $this->mailer->send($email, $name, $subject, 'emails.job-created', $send_data);
+            if (!empty($job->user_email)) {
+                $email = $job->user_email;
+                $name = $user->name;
+            } else {
+                $email = $user->email;
+                $name = $user->name;
+            }
+            $subject = 'Vi har mottagit er tolkbokning. Bokningsnr: #' . $job->id;
+            $send_data = [
+                'user' => $user,
+                'job'  => $job
+            ];
+            $this->mailer->send($email, $name, $subject, 'emails.job-created', $send_data);
 
-        $response['type'] = $user_type;
-        $response['job'] = $job;
-        $response['status'] = 'success';
-        $data = $this->jobToData($job);
-        Event::fire(new JobWasCreated($job, $data, '*'));
-        return $response;
+            $response['type'] = $user_type;
+            $response['job'] = $job;
+            $response['status'] = 'success';
+            $data = $this->jobToData($job);
+            Event::fire(new JobWasCreated($job, $data, '*'));
+            
+            return $this->success('Store job email successfully.',$response, 'data',200);
+        }catch(\Exception $e)
+        {
+            DB::rollBack();
+            return $this->error($e->getMessage(), $e->getCode());
+        }
 
     }
 
@@ -656,17 +680,18 @@ class BookingRepository extends BaseRepository
             $fields['send_after'] = $next_business_time;
         }
         $fields = json_encode($fields);
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, "https://onesignal.com/api/v1/notifications");
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json', $onesignalRestAuthKey));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
-        curl_setopt($ch, CURLOPT_HEADER, FALSE);
-        curl_setopt($ch, CURLOPT_POST, TRUE);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-        $response = curl_exec($ch);
-        $logger->addInfo('Push send for job ' . $job_id . ' curl answer', [$response]);
-        curl_close($ch);
+        // $ch = curl_init();
+        // curl_setopt($ch, CURLOPT_URL, "https://onesignal.com/api/v1/notifications");
+        // curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json', $onesignalRestAuthKey));
+        // curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+        // curl_setopt($ch, CURLOPT_HEADER, FALSE);
+        // curl_setopt($ch, CURLOPT_POST, TRUE);
+        // curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
+        // curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+        // $response = curl_exec($ch);
+        $sendNotificationResponse = TeHelper::sendNotification($onesignalRestAuthKey,$fields);
+        $logger->addInfo('Push send for job ' . $job_id . ' curl answer', [$sendNotificationResponse]);
+        // curl_close($ch);
     }
 
     /**
